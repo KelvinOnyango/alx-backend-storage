@@ -1,68 +1,36 @@
 #!/usr/bin/env python3
 """
-Web cache and tracker implementation with Redis.
+Web cache and tracker
 """
 
 import requests
 import redis
 from functools import wraps
-from typing import Callable
 
-# Initialize Redis client connection
 redis_client = redis.Redis()
 
-
-def count_access(method: Callable) -> Callable:
-    """
-    Decorator to count how many times a URL has been accessed.
-    Increments the count each time the URL is requested.
-    """
+def count_access(method):
+    """Count URL accesses"""
     @wraps(method)
-    def wrapper(url: str) -> str:
-        """Wrapper function that tracks URL access counts."""
-        count_key = f"count:{url}"
-        redis_client.incr(count_key)
+    def wrapper(url):
+        redis_client.incr(f"count:{url}")
         return method(url)
     return wrapper
 
-
-def cache_result(expiration: int = 10) -> Callable:
-    """
-    Decorator to cache the result of a function with expiration.
-    Args:
-        expiration: Time in seconds until the cache expires (default: 10)
-    """
-    def decorator(method: Callable) -> Callable:
-        @wraps(method)
-        def wrapper(url: str) -> str:
-            """Wrapper function that implements caching logic."""
-            cache_key = f"result:{url}"
-            
-            # Check if result is cached
-            cached_content = redis_client.get(cache_key)
-            if cached_content:
-                return cached_content.decode('utf-8')
-            
-            # If not cached, fetch and store
-            content = method(url)
-            redis_client.setex(cache_key, expiration, content)
-            return content
-        return wrapper
-    return decorator
-
+def cache_page(method):
+    """Cache page with 10 second expiry"""
+    @wraps(method)
+    def wrapper(url):
+        cached = redis_client.get(f"cache:{url}")
+        if cached:
+            return cached.decode('utf-8')
+        html = method(url)
+        redis_client.setex(f"cache:{url}", 10, html)
+        return html
+    return wrapper
 
 @count_access
-@cache_result(expiration=10)
-def get_page(url: str) -> str:
-    """
-    Fetch the HTML content of a URL with caching and access tracking.
-    Args:
-        url: The URL to fetch content from
-    Returns:
-        The HTML content as a string
-    Raises:
-        requests.exceptions.RequestException: If the request fails
-    """
-    response = requests.get(url)
-    response.raise_for_status()  # Raise exception for bad status codes
-    return response.text
+@cache_page
+def get_page(url):
+    """Get HTML content of URL"""
+    return requests.get(url).text
